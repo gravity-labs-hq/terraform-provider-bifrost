@@ -4,7 +4,9 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +33,13 @@ type platAccount struct {
 	Expires time.Time
 	Domains []string
 	CI      bool // tiene vínculo de CI (el ID token CIIDToken puede asumirla)
+	// Bindings: vínculos de CI con sus condiciones extra (claims), como los devuelve el servidor.
+	Bindings []platBinding
+}
+
+type platBinding struct {
+	ProjectPath, Environment string
+	Claims                   map[string]string
 }
 
 func (a *platAccount) active(now time.Time) bool { return !a.Revoked && now.Before(a.Expires) }
@@ -279,6 +288,18 @@ func (s *Server) platAuthorize(id *identity, r *http.Request, seg []string, body
 
 // ---- administración de las cuentas (solo persona administradora) ----
 
+func bindingsJSON(a *platAccount) []any {
+	out := []any{}
+	for i, b := range a.Bindings {
+		cl := b.Claims
+		if cl == nil {
+			cl = map[string]string{}
+		}
+		out = append(out, map[string]any{"id": fmt.Sprintf("e%011d", i), "issuer": "https://gitlab.com", "project_path": b.ProjectPath, "environment": b.Environment, "claims": cl})
+	}
+	return out
+}
+
 func platJSON(a *platAccount) map[string]any {
 	sc := make([]string, 0, len(a.Scopes))
 	for k := range a.Scopes {
@@ -295,7 +316,7 @@ func platJSON(a *platAccount) map[string]any {
 	}
 	return map[string]any{"name": a.Name, "id": a.Name + "@platform", "scopes": sc, "apps": nz(a.Apps), "app_prefix": a.Prefix, "allowed_domains": nz(a.Domains), "allow_identities": a.Scopes["identities:manage"],
 		"expires_at": a.Expires.UTC().Format(time.RFC3339), "created_by": "x", "created_at": "2026-01-01T00:00:00Z", "revoked": a.Revoked, "last_used": nil,
-		"keys": ks, "bindings": []any{}}
+		"keys": ks, "bindings": bindingsJSON(a)}
 }
 
 func (s *Server) platformAccounts(m string, seg []string, body []byte) (int, any, *apiErr) {
@@ -319,8 +340,9 @@ func (s *Server) platformAccounts(m string, seg []string, body []byte) (int, any
 				AllowedDomains  []string `json:"allowed_domains"`
 				AllowIdentities bool     `json:"allow_identities"`
 				Bindings        []struct {
-					ProjectPath string `json:"project_path"`
-					Environment string `json:"environment"`
+					ProjectPath string            `json:"project_path"`
+					Environment string            `json:"environment"`
+					Claims      map[string]string `json:"claims"`
 				}
 			}
 			if e := dec(body, &req); e != nil {
@@ -364,10 +386,22 @@ func (s *Server) platformAccounts(m string, seg []string, body []byte) (int, any
 			if (sc["queues:manage"] || sc["runners:manage"] || sc["replication:propose"]) && req.AppPrefix == "" {
 				return 0, nil, e400("Los scopes de colas, pools y enlaces exigen app_prefix.")
 			}
+			var bs []platBinding
+			for _, b := range req.Bindings {
+				if len(b.Claims) > 8 {
+					return 0, nil, e400("Demasiadas condiciones extra en el vínculo.")
+				}
+				for k, v := range b.Claims {
+					if k == "project_path" || k == "ref_protected" || k == "environment" || v == "" || len(v) > 200 || !regexp.MustCompile(`^[a-z_]{1,40}$`).MatchString(k) {
+						return 0, nil, e400("Condición de vínculo no válida: «" + k + "».")
+					}
+				}
+				bs = append(bs, platBinding{ProjectPath: b.ProjectPath, Environment: b.Environment, Claims: b.Claims})
+			}
 			if _, dup := s.plat[req.Name]; dup {
 				return 0, nil, e409("Ya existe una cuenta de plataforma con ese nombre (aunque esté revocada: usa otro).")
 			}
-			a := &platAccount{Name: req.Name, Scopes: sc, Apps: req.Apps, Prefix: req.AppPrefix, Domains: req.AllowedDomains, Expires: s.now().AddDate(0, 0, req.ExpiresInDays), CI: len(req.Bindings) > 0}
+			a := &platAccount{Name: req.Name, Scopes: sc, Apps: req.Apps, Prefix: req.AppPrefix, Domains: req.AllowedDomains, Expires: s.now().AddDate(0, 0, req.ExpiresInDays), CI: len(req.Bindings) > 0, Bindings: bs}
 			pub, priv := newKeyPair()
 			k := &key{ID: "k1", Public: pub, Created: s.now()}
 			k.Expires = capExpiry(s.now().AddDate(0, 0, 90), a.Expires)
@@ -508,4 +542,15 @@ func (s *Server) PlatformKeyState(name string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// PlatformBindingClaims devuelve las condiciones extra del vínculo de CI de una cuenta de plataforma (pruebas).
+func (s *Server) PlatformBindingClaims(account string) map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.plat[account]
+	if a == nil || len(a.Bindings) == 0 {
+		return nil
+	}
+	return a.Bindings[0].Claims
 }

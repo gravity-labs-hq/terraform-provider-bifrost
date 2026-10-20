@@ -73,6 +73,7 @@ Required:
 
 Optional:
 
+- `claims` (Map of String) Condiciones extra EXACTAS sobre claims del ID token, todas obligatorias (el servidor compara por igualdad; un valor vacío se rechaza para que nunca actúe de comodín). Sin ellas el vínculo acepta cualquier pipeline del proyecto en una ref protegida con ese `environment`, también una etiqueta protegida. Recomendadas para GitLab: `ref_type = "branch"`, `ref = "<rama>"`, `project_id = "<id numérico>"` y `pipeline_source`. No pueden repetir `project_path`, `ref_protected` ni `environment`.
 - `issuer` (String) Emisor del ID token (por omisión https://gitlab.com); debe estar permitido en el cluster.
 
 ## Import

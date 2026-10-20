@@ -445,6 +445,8 @@ type PlatformBindingSpec struct {
 	Issuer      string `json:"issuer,omitempty"`
 	ProjectPath string `json:"project_path"`
 	Environment string `json:"environment"`
+	// Claims: condiciones extra exactas sobre claims del ID token (ref_type, ref, project_id, pipeline_source...).
+	Claims map[string]string `json:"claims,omitempty"`
 }
 
 type CreatePlatformAccountReq struct {

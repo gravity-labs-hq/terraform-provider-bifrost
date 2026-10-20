@@ -259,3 +259,50 @@ func TestOperarConFederacionDePlataforma(t *testing.T) {
 		},
 	})
 }
+
+// El vínculo de CI de una cuenta de plataforma admite condiciones extra EXACTAS (rama, tipo de ref, id de proyecto, tipo de pipeline).
+func TestCuentaDePlataformaVinculoConClaims(t *testing.T) {
+	cleanEnv(t)
+	f := newFakeEnv(t)
+	cfg := func(claims string) string {
+		return f.cfg(fmt.Sprintf(`
+resource "bifrost_platform_account" "ci" {
+  name            = "aromo-ci"
+  scopes          = ["apps:read", "quota:manage", "network:manage"]
+  apps            = ["aromo-coffee"]
+  expires_in_days = 90
+  ci_binding = {
+    project_path = "aromo-coffee/ecommerce"
+    environment  = "iac-production"
+    %s
+  }
+}
+`, claims))
+	}
+	good := `claims = { ref_type = "branch", ref = "master", project_id = "83771348", pipeline_source = "push" }`
+	tfresource.UnitTest(t, tfresource.TestCase{
+		ProtoV6ProviderFactories: testFactories,
+		Steps: []tfresource.TestStep{
+			{Config: cfg(good), Check: func(*terraform.State) error {
+				got := f.srv.PlatformBindingClaims("aromo-ci")
+				want := map[string]string{"ref_type": "branch", "ref": "master", "project_id": "83771348", "pipeline_source": "push"}
+				if len(got) != len(want) {
+					return fmt.Errorf("claims en el servidor: %v", got)
+				}
+				for k, v := range want {
+					if got[k] != v {
+						return fmt.Errorf("claim %s = %q, esperaba %q", k, got[k], v)
+					}
+				}
+				return nil
+			}},
+			{Config: cfg(good), PlanOnly: true},
+			// Valores vacíos (comodín), claves reservadas o con forma inválida se rechazan en el plan.
+			{Config: cfg(`claims = { ref = "" }`), ExpectError: regexp.MustCompile(`(?s)length|Invalid Attribute Value`)},
+			{Config: cfg(`claims = { environment = "x" }`), ExpectError: regexp.MustCompile(`(?s)environment|Invalid Attribute Value`)},
+			{Config: cfg(`claims = { project_path = "otro/proyecto" }`), ExpectError: regexp.MustCompile(`(?s)project_path|Invalid Attribute Value`)},
+			{Config: cfg(`claims = { "Ref-Type" = "branch" }`), ExpectError: regexp.MustCompile(`(?s)no válido|Invalid Attribute`)},
+			{Config: cfg(good), PlanOnly: true}, // última configuración válida: la usa el destroy final
+		},
+	})
+}

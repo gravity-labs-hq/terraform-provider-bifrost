@@ -3,9 +3,11 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -39,6 +41,7 @@ type ciBindingModel struct {
 	ProjectPath types.String `tfsdk:"project_path"`
 	Environment types.String `tfsdk:"environment"`
 	Issuer      types.String `tfsdk:"issuer"`
+	Claims      types.Map    `tfsdk:"claims"`
 }
 
 type platformAccountModel struct {
@@ -59,6 +62,9 @@ type platformAccountModel struct {
 	KeyExpiresAt    types.String    `tfsdk:"key_expires_at"`
 	KeyJSON         types.String    `tfsdk:"key_json"`
 }
+
+// ciClaimKeyRe: nombres de claim del ID token (los mismos que acepta el servidor).
+var ciClaimKeyRe = regexp.MustCompile(`^[a-z_]{1,40}$`)
 
 var scopeNames = []string{"apps:read", "apps:create", "apps:manage", "quota:manage", "network:manage", "members:manage", "identities:manage", "queues:read", "queues:manage",
 	"runners:read", "runners:manage", "replication:read", "replication:propose", "schedule:manage"}
@@ -98,6 +104,12 @@ func (r *platformAccountResource) Schema(_ context.Context, _ resource.SchemaReq
 					"project_path": schema.StringAttribute{Required: true, Description: "`grupo/repo` exacto (sin comodines)."},
 					"environment":  schema.StringAttribute{Required: true, Description: "Valor exigido de `environment:` en el job (p. ej. `production`)."},
 					"issuer":       schema.StringAttribute{Optional: true, Description: "Emisor del ID token (por omisión https://gitlab.com); debe estar permitido en el cluster."},
+					"claims": schema.MapAttribute{Optional: true, ElementType: types.StringType,
+						Description: "Condiciones extra EXACTAS sobre claims del ID token, todas obligatorias (el servidor compara por igualdad; un valor vacío se rechaza para que nunca actúe de comodín). " +
+							"Sin ellas el vínculo acepta cualquier pipeline del proyecto en una ref protegida con ese `environment`, también una etiqueta protegida. Recomendadas para GitLab: " +
+							"`ref_type = \"branch\"`, `ref = \"<rama>\"`, `project_id = \"<id numérico>\"` y `pipeline_source`. No pueden repetir `project_path`, `ref_protected` ni `environment`.",
+						Validators: []validator.Map{mapvalidator.SizeAtMost(8), mapvalidator.KeysAre(stringvalidator.RegexMatches(ciClaimKeyRe, "nombre de claim no válido"), stringvalidator.NoneOf("project_path", "ref_protected", "environment")),
+							mapvalidator.ValueStringsAre(stringvalidator.LengthBetween(1, 200))}},
 				}},
 			"account_id":     schema.StringAttribute{Computed: true, Description: "`nombre@platform`.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"expires_at":     schema.StringAttribute{Computed: true, Description: "Caducidad vigente (RFC 3339)."},
@@ -236,7 +248,16 @@ func (r *platformAccountResource) Create(ctx context.Context, req resource.Creat
 	cr := client.CreatePlatformAccountReq{Name: plan.Name.ValueString(), Scopes: setStrings(ctx, plan.Scopes), Apps: setStrings(ctx, plan.Apps), AppPrefix: str(plan.AppPrefix),
 		ExpiresInDays: plan.ExpiresInDays.ValueInt64(), AllowedDomains: setStrings(ctx, plan.AllowedDomains), AllowIdentities: plan.AllowIdentities.ValueBool()}
 	if b := plan.CIBinding; b != nil {
-		cr.Bindings = []client.PlatformBindingSpec{{Issuer: str(b.Issuer), ProjectPath: b.ProjectPath.ValueString(), Environment: b.Environment.ValueString()}}
+		spec := client.PlatformBindingSpec{Issuer: str(b.Issuer), ProjectPath: b.ProjectPath.ValueString(), Environment: b.Environment.ValueString()}
+		if !b.Claims.IsNull() && !b.Claims.IsUnknown() {
+			spec.Claims = map[string]string{}
+			for k, v := range b.Claims.Elements() {
+				if sv, ok := v.(types.String); ok {
+					spec.Claims[k] = sv.ValueString()
+				}
+			}
+		}
+		cr.Bindings = []client.PlatformBindingSpec{spec}
 	}
 	out, err := r.c.CreatePlatformAccount(ctx, cr)
 	if err != nil {
