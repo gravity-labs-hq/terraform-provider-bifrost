@@ -1,0 +1,9 @@
+# El state de Terraform guarda claves privadas (sensibles) de cuentas de servicio: NUNCA va a git.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+*.tfvars
+clave*.json
+*.pem

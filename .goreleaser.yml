@@ -1,0 +1,56 @@
+# Publicación del provider en el Registry de Terraform / OpenTofu (formato exigido por registry.terraform.io; sirve también para un registry privado).
+# Lo ejecuta el CI de GitLab del monorepo (job publish:provider-release) con la etiqueta vX.Y.Z. Firma: GPG_FINGERPRINT y la clave en un keyring temporal son obligatorios.
+# Prueba local sin publicar (sí firma: exporta GPG_FINGERPRINT y GPG_PASSPHRASE de una clave desechable):  make release-snapshot
+version: 2
+project_name: terraform-provider-bifrost
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - env:
+      - CGO_ENABLED=0
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - "-s -w -X main.version={{ .Version }}"
+    goos: [freebsd, windows, linux, darwin]
+    goarch: [amd64, "386", arm, arm64]
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm
+    binary: "{{ .ProjectName }}_v{{ .Version }}"
+archives:
+  - formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  extra_files:
+    - glob: "terraform-registry-manifest.json"
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+signs:
+  - artifacts: checksum
+    # La passphrase (variable enmascarada GPG_PASSPHRASE) llega a gpg por stdin: nunca en argv. Con una clave sin passphrase, va vacía.
+    stdin: "{{ .Env.GPG_PASSPHRASE }}"
+    args:
+      - "--batch"
+      - "--pinentry-mode"
+      - "loopback"
+      - "--passphrase-fd"
+      - "0"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+release:
+  draft: false
+  extra_files:
+    - glob: "terraform-registry-manifest.json"
+      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
+changelog:
+  disable: true

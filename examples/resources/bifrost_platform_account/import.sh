@@ -1,0 +1,1 @@
+terraform import bifrost_platform_account.terraform terraform
