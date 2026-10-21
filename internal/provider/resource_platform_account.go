@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -27,10 +28,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = &platformAccountResource{}
-	_ resource.ResourceWithConfigure   = &platformAccountResource{}
-	_ resource.ResourceWithImportState = &platformAccountResource{}
-	_ resource.ResourceWithModifyPlan  = &platformAccountResource{}
+	_ resource.Resource                   = &platformAccountResource{}
+	_ resource.ResourceWithConfigure      = &platformAccountResource{}
+	_ resource.ResourceWithImportState    = &platformAccountResource{}
+	_ resource.ResourceWithModifyPlan     = &platformAccountResource{}
+	_ resource.ResourceWithValidateConfig = &platformAccountResource{}
 )
 
 func NewPlatformAccountResource() resource.Resource { return &platformAccountResource{} }
@@ -55,6 +57,7 @@ type platformAccountModel struct {
 	Keepers         types.Map       `tfsdk:"keepers"`
 	AllowedDomains  types.Set       `tfsdk:"allowed_domains"`
 	AllowIdentities types.Bool      `tfsdk:"allow_identities"`
+	AllowPorts      types.Bool      `tfsdk:"allow_ports"`
 	CIBinding       *ciBindingModel `tfsdk:"ci_binding"`
 	AccountID       types.String    `tfsdk:"account_id"`
 	ExpiresAt       types.String    `tfsdk:"expires_at"`
@@ -67,7 +70,7 @@ type platformAccountModel struct {
 var ciClaimKeyRe = regexp.MustCompile(`^[a-z_]{1,40}$`)
 
 var scopeNames = []string{"apps:read", "apps:create", "apps:manage", "quota:manage", "network:manage", "members:manage", "identities:manage", "queues:read", "queues:manage",
-	"runners:read", "runners:manage", "replication:read", "replication:propose", "schedule:manage"}
+	"runners:read", "runners:manage", "replication:read", "replication:propose", "schedule:manage", "ports:manage"}
 
 func (r *platformAccountResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_platform_account"
@@ -84,7 +87,7 @@ func (r *platformAccountResource) Schema(_ context.Context, _ resource.SchemaReq
 			"name": schema.StringAttribute{Required: true, Description: "Nombre (2 a 30, minúsculas ASCII, números y guiones; no empieza con «admin»).", PlanModifiers: rr(),
 				Validators: []validator.String{stringvalidator.RegexMatches(slugRe, "debe ser minúsculas ASCII, números y guiones medios"), stringvalidator.LengthBetween(2, 30)}},
 			"scopes": schema.SetAttribute{Required: true, ElementType: types.StringType, PlanModifiers: []planmodifier.Set{setplanmodifier.RequiresReplace()},
-				Description: "Scopes (lista cerrada): " + joinScopes() + ". Los de escritura incluyen su lectura. `apps:create`, `queues:manage`, `runners:manage` y `replication:propose` exigen `app_prefix`; `identities:manage` exige además `allow_identities = true` y `apps` o `app_prefix`. `schedule:manage` abre SOLO la programación de carga (`bifrost_schedule`) de las Apps permitidas: no incluye `apps:manage` ni lo incluye ningún otro scope.",
+				Description: "Scopes (lista cerrada): " + joinScopes() + ". Los de escritura incluyen su lectura. `apps:create`, `queues:manage`, `runners:manage` y `replication:propose` exigen `app_prefix`; `identities:manage` exige además `allow_identities = true` y `apps` o `app_prefix`. `schedule:manage` abre SOLO la programación de carga (`bifrost_schedule`) de las Apps permitidas: no incluye `apps:manage` ni lo incluye ningún otro scope. `ports:manage` (el más delicado) abre SOLO los puertos TCP/UDP públicos (`bifrost_ports`) de las Apps permitidas: exige `allow_ports = true` y `apps` o `app_prefix`, no lo incluye ningún otro scope y solo una persona administradora puede otorgarlo.",
 				Validators:  []validator.Set{setvalidator.SizeAtLeast(1), setvalidator.ValueStringsAre(stringvalidator.OneOf(scopeNames...))}},
 			"effective_scopes": schema.SetAttribute{Computed: true, ElementType: types.StringType, Description: "Scopes vigentes en el servidor: los de `scopes` más las lecturas que incluyen."},
 			"apps": schema.SetAttribute{Optional: true, Computed: true, ElementType: types.StringType, Default: emptySet, PlanModifiers: []planmodifier.Set{setplanmodifier.RequiresReplace()},
@@ -93,6 +96,8 @@ func (r *platformAccountResource) Schema(_ context.Context, _ resource.SchemaReq
 				Description: "Dominios de correo (p. ej. `example.org`) a los que la cuenta puede dar rol de owner o miembro. **Obligatorio con `apps:create` o `members:manage`**; nunca puede nombrar owner a otra cuenta de plataforma."},
 			"allow_identities": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), PlanModifiers: []planmodifier.Bool{boolplanmodifier.RequiresReplace()},
 				Description: "Opt-in explícito de `identities:manage` (cuentas de servicio y vínculos de CI de las Apps permitidas = acceso de despliegue). Exige `apps` o `app_prefix`."},
+			"allow_ports": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), PlanModifiers: []planmodifier.Bool{boolplanmodifier.RequiresReplace()},
+				Description: "Opt-in explícito de `ports:manage` (abrir puertos TCP/UDP públicos de las Apps permitidas: expone servicios en la IP del servidor, fuera de Cloudflare). Exige `apps` o `app_prefix`."},
 			"app_prefix": schema.StringAttribute{Optional: true, Description: "Prefijo de nombres delegado (Apps, colas, pools, enlaces), p. ej. `tienda-`. Comparación literal.", PlanModifiers: rr(),
 				Validators: []validator.String{stringvalidator.LengthBetween(1, 28), stringvalidator.RegexMatches(prefixRe, "minúsculas ASCII, números y guiones")}},
 			"expires_in_days": schema.Int64Attribute{Required: true, Description: "Caducidad de la cuenta en días (1 a 365). Cambiarlo rota la clave y renueva la caducidad.", Validators: []validator.Int64{int64validator.Between(1, 365)}},
@@ -134,7 +139,7 @@ func joinScopes() string {
 
 func (r *platformAccountResource) fill(m *platformAccountModel, a client.PlatformAccount) {
 	m.ID, m.AccountID, m.ExpiresAt = types.StringValue(a.Name), types.StringValue(a.ID), types.StringValue(a.ExpiresAt)
-	m.EffectiveScopes, m.Apps, m.AllowedDomains, m.AllowIdentities = strSet(a.Scopes), strSet(a.Apps), strSet(a.AllowedDomains), types.BoolValue(a.AllowIdentities)
+	m.EffectiveScopes, m.Apps, m.AllowedDomains, m.AllowIdentities, m.AllowPorts = strSet(a.Scopes), strSet(a.Apps), strSet(a.AllowedDomains), types.BoolValue(a.AllowIdentities), types.BoolValue(a.AllowPorts)
 	// `scopes` conserva lo que el usuario escribió mientras el servidor tenga lo mismo (más las lecturas implícitas); si no, es deriva.
 	if m.Scopes.IsNull() || m.Scopes.IsUnknown() || !sameSet(expandScopes(setStrings(context.Background(), m.Scopes)), a.Scopes) {
 		m.Scopes = strSet(minimalScopes(a.Scopes))
@@ -246,7 +251,7 @@ func (r *platformAccountResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 	cr := client.CreatePlatformAccountReq{Name: plan.Name.ValueString(), Scopes: setStrings(ctx, plan.Scopes), Apps: setStrings(ctx, plan.Apps), AppPrefix: str(plan.AppPrefix),
-		ExpiresInDays: plan.ExpiresInDays.ValueInt64(), AllowedDomains: setStrings(ctx, plan.AllowedDomains), AllowIdentities: plan.AllowIdentities.ValueBool()}
+		ExpiresInDays: plan.ExpiresInDays.ValueInt64(), AllowedDomains: setStrings(ctx, plan.AllowedDomains), AllowIdentities: plan.AllowIdentities.ValueBool(), AllowPorts: plan.AllowPorts.ValueBool()}
 	if b := plan.CIBinding; b != nil {
 		spec := client.PlatformBindingSpec{Issuer: str(b.Issuer), ProjectPath: b.ProjectPath.ValueString(), Environment: b.Environment.ValueString()}
 		if !b.Claims.IsNull() && !b.Claims.IsUnknown() {
@@ -352,7 +357,7 @@ func (r *platformAccountResource) ImportState(ctx context.Context, req resource.
 		resp.Diagnostics.AddError("No se encontró la cuenta de plataforma", fmt.Sprintf("No hay una cuenta activa %q.", req.ID))
 		return
 	}
-	m := platformAccountModel{Name: types.StringValue(a.Name), AllowedDomains: types.SetNull(types.StringType), AllowIdentities: types.BoolNull(), AppPrefix: types.StringNull(), ExpiresInDays: types.Int64Null(), Keepers: importedKeepers(),
+	m := platformAccountModel{Name: types.StringValue(a.Name), AllowedDomains: types.SetNull(types.StringType), AllowIdentities: types.BoolNull(), AllowPorts: types.BoolNull(), AppPrefix: types.StringNull(), ExpiresInDays: types.Int64Null(), Keepers: importedKeepers(),
 		KeyID: types.StringNull(), KeyJSON: types.StringNull()}
 	r.fill(&m, a)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
@@ -364,7 +369,7 @@ func (r *platformAccountResource) ImportState(ctx context.Context, req resource.
 
 // impliedReads: el servidor guarda expandidas las lecturas que incluye cada scope de escritura.
 var impliedReads = map[string][]string{"apps:create": {"apps:read"}, "apps:manage": {"apps:read"}, "quota:manage": {"apps:read"}, "network:manage": {"apps:read"},
-	"members:manage": {"apps:read"}, "identities:manage": {"apps:read"}, "queues:manage": {"queues:read"}, "runners:manage": {"runners:read"}, "replication:propose": {"replication:read"}, "schedule:manage": {"apps:read"}}
+	"members:manage": {"apps:read"}, "identities:manage": {"apps:read"}, "queues:manage": {"queues:read"}, "runners:manage": {"runners:read"}, "replication:propose": {"replication:read"}, "schedule:manage": {"apps:read"}, "ports:manage": {"apps:read"}}
 
 func expandScopes(in []string) []string {
 	set := map[string]bool{}
@@ -415,5 +420,39 @@ func (r *platformAccountResource) ModifyPlan(ctx context.Context, req resource.M
 		for _, a := range []string{"key_id", "key_json", "expires_at", "key_expires_at"} {
 			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, rootAttr(a), types.StringUnknown())...)
 		}
+	}
+}
+
+// ValidateConfig falla en el plan por lo que el servidor rechazaría: ports:manage exige el opt-in allow_ports y una lista de Apps o un prefijo, y allow_ports
+// no tiene sentido sin el scope.
+func (r *platformAccountResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var scopes, apps types.Set
+	var allow types.Bool
+	var prefix types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("scopes"), &scopes)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("apps"), &apps)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("app_prefix"), &prefix)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("allow_ports"), &allow)...)
+	if resp.Diagnostics.HasError() || scopes.IsUnknown() || scopes.IsNull() {
+		return
+	}
+	has := false
+	for _, s := range setStrings(ctx, scopes) {
+		has = has || s == "ports:manage"
+	}
+	if !has {
+		if !allow.IsNull() && !allow.IsUnknown() && allow.ValueBool() {
+			resp.Diagnostics.AddAttributeError(path.Root("allow_ports"), "allow_ports sin el scope", "allow_ports solo tiene sentido con el scope `ports:manage`.")
+		}
+		return
+	}
+	if !allow.IsUnknown() && (allow.IsNull() || !allow.ValueBool()) {
+		resp.Diagnostics.AddAttributeError(path.Root("allow_ports"), "ports:manage es opt-in", "Añade `allow_ports = true`: el scope publica servicios TCP/UDP en la IP del servidor, fuera de Cloudflare.")
+	}
+	if apps.IsUnknown() || prefix.IsUnknown() {
+		return
+	}
+	if len(setStrings(ctx, apps)) == 0 && prefix.ValueString() == "" {
+		resp.Diagnostics.AddAttributeError(path.Root("scopes"), "ports:manage exige un límite", "ports:manage exige una lista de `apps` o un `app_prefix`: nunca sin límite.")
 	}
 }

@@ -90,6 +90,7 @@ type env struct {
 	Workloads  []*workload
 	Hosts      map[string]map[string]any
 	Schedule   *scheduleState
+	Ports      []portEntry // puertos públicos TCP/UDP (ver routes_ports.go)
 }
 
 type key struct {

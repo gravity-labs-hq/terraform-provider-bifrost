@@ -18,3 +18,12 @@ resource "bifrost_platform_account" "programadora" {
   scopes          = ["schedule:manage"]
   expires_in_days = 90
 }
+
+# Cuenta que abre puertos TCP/UDP públicos de sus Apps (ports:manage es el scope MÁS delicado: opt-in `allow_ports` y límite de Apps obligatorios).
+resource "bifrost_platform_account" "puertos" {
+  name            = "puertos"
+  app_prefix      = "correo-"
+  scopes          = ["ports:manage"]
+  allow_ports     = true
+  expires_in_days = 90
+}

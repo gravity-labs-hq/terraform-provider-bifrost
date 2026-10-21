@@ -17,11 +17,11 @@ import (
 
 // PlatformScopes son los scopes válidos (internal/scope del servidor).
 var PlatformScopes = []string{"apps:read", "apps:create", "apps:manage", "quota:manage", "network:manage", "members:manage", "identities:manage", "queues:read",
-	"queues:manage", "runners:read", "runners:manage", "replication:read", "replication:propose", "schedule:manage"}
+	"queues:manage", "runners:read", "runners:manage", "replication:read", "replication:propose", "schedule:manage", "ports:manage"}
 
 var implied = map[string][]string{"apps:create": {"apps:read"}, "apps:manage": {"apps:read"}, "quota:manage": {"apps:read"}, "network:manage": {"apps:read"},
 	"members:manage": {"apps:read"}, "identities:manage": {"apps:read"}, "queues:manage": {"queues:read"}, "runners:manage": {"runners:read"},
-	"replication:propose": {"replication:read"}, "schedule:manage": {"apps:read"}}
+	"replication:propose": {"replication:read"}, "schedule:manage": {"apps:read"}, "ports:manage": {"apps:read"}}
 
 type platAccount struct {
 	Name    string
@@ -139,6 +139,8 @@ func envScope(method string, seg []string, pick func(r, w string) string) string
 			}
 		case "schedule":
 			return "schedule:manage" // lectura y escritura: nadie más la abre (default-deny)
+		case "ports":
+			return "ports:manage" // lectura y escritura: ningún otro scope la abre (default-deny)
 		case "access":
 			return pick("apps:read", "network:manage")
 		case "hosts":
@@ -314,7 +316,7 @@ func platJSON(a *platAccount) map[string]any {
 		}
 		ks = append(ks, map[string]any{"id": k.ID, "created": k.Created.UTC().Format(time.RFC3339), "expires": exp, "revoked": k.Revoked})
 	}
-	return map[string]any{"name": a.Name, "id": a.Name + "@platform", "scopes": sc, "apps": nz(a.Apps), "app_prefix": a.Prefix, "allowed_domains": nz(a.Domains), "allow_identities": a.Scopes["identities:manage"],
+	return map[string]any{"name": a.Name, "id": a.Name + "@platform", "scopes": sc, "apps": nz(a.Apps), "app_prefix": a.Prefix, "allowed_domains": nz(a.Domains), "allow_identities": a.Scopes["identities:manage"], "allow_ports": a.Scopes["ports:manage"],
 		"expires_at": a.Expires.UTC().Format(time.RFC3339), "created_by": "x", "created_at": "2026-01-01T00:00:00Z", "revoked": a.Revoked, "last_used": nil,
 		"keys": ks, "bindings": bindingsJSON(a)}
 }
@@ -339,6 +341,7 @@ func (s *Server) platformAccounts(m string, seg []string, body []byte) (int, any
 				ExpiresInDays   int      `json:"expires_in_days"`
 				AllowedDomains  []string `json:"allowed_domains"`
 				AllowIdentities bool     `json:"allow_identities"`
+				AllowPorts      bool     `json:"allow_ports"`
 				Bindings        []struct {
 					ProjectPath string            `json:"project_path"`
 					Environment string            `json:"environment"`
@@ -379,6 +382,15 @@ func (s *Server) platformAccounts(m string, seg []string, body []byte) (int, any
 			}
 			if sc["identities:manage"] && len(req.Apps) == 0 && req.AppPrefix == "" {
 				return 0, nil, e400("identities:manage exige una lista de Apps (--apps) o un app_prefix: nunca sin límite.")
+			}
+			if sc["ports:manage"] && !req.AllowPorts {
+				return 0, nil, e400("ports:manage es opt-in: añade allow_ports (--allow-ports). Publica servicios TCP/UDP en la IP del servidor, fuera de Cloudflare.")
+			}
+			if sc["ports:manage"] && len(req.Apps) == 0 && req.AppPrefix == "" {
+				return 0, nil, e400("ports:manage exige una lista de Apps (--apps) o un app_prefix: nunca sin límite.")
+			}
+			if !sc["ports:manage"] && req.AllowPorts {
+				return 0, nil, e400("allow_ports solo tiene sentido con el scope ports:manage.")
 			}
 			if (sc["apps:create"] || sc["members:manage"]) && len(req.AllowedDomains) == 0 {
 				return 0, nil, e400("apps:create y members:manage exigen allowed_domains.")

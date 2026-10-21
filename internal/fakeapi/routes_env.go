@@ -101,6 +101,8 @@ func (s *Server) envs(id identity, a *app, m string, q map[string][]string, seg 
 		return s.schedule(adm, a, e, m, seg[2:], body)
 	case "services":
 		return s.envServices(id, a, e, m, q, seg[2:], body)
+	case "ports":
+		return s.ports(id, a, e, m, q, seg[2:], body)
 	}
 	return 0, nil, e404("No existe esa ruta.")
 }

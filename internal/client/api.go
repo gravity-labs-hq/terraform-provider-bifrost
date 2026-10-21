@@ -156,6 +156,23 @@ func (c *Client) SetSchedule(ctx context.Context, app, env string, s ScheduleSpe
 	return v, err
 }
 
+// ---- puertos públicos TCP/UDP ----
+
+func portsPath(app, env string) string { return envPath(app, env) + "/ports" }
+
+func (c *Client) GetPorts(ctx context.Context, app, env string) (PortsView, error) {
+	var v PortsView
+	err := c.Call(ctx, http.MethodGet, portsPath(app, env), nil, nil, &v)
+	return v, err
+}
+
+// SetPorts REEMPLAZA la lista completa de puertos del entorno. 409 si la versión cambió o si un puerto choca con otro entorno u otra App.
+func (c *Client) SetPorts(ctx context.Context, app, env string, r SetPortsReq) (PortsView, error) {
+	var v PortsView
+	err := c.Call(ctx, http.MethodPut, portsPath(app, env), nil, r, &v)
+	return v, err
+}
+
 // ---- acceso entre Apps ----
 
 func (c *Client) ListAccess(ctx context.Context, app, env string) (Access, error) {

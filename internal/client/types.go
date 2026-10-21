@@ -458,6 +458,7 @@ type CreatePlatformAccountReq struct {
 	Bindings        []PlatformBindingSpec `json:"bindings,omitempty"`
 	AllowedDomains  []string              `json:"allowed_domains"`
 	AllowIdentities bool                  `json:"allow_identities"`
+	AllowPorts      bool                  `json:"allow_ports"`
 }
 
 type PlatformAccount struct {
@@ -469,6 +470,7 @@ type PlatformAccount struct {
 	ExpiresAt       string   `json:"expires_at"`
 	AllowedDomains  []string `json:"allowed_domains"`
 	AllowIdentities bool     `json:"allow_identities"`
+	AllowPorts      bool     `json:"allow_ports"`
 	Revoked         bool     `json:"revoked"`
 	Keys            []struct {
 		ID      string  `json:"id"`
@@ -531,4 +533,45 @@ type ScheduleView struct {
 	Version    string       `json:"version"`
 	Schedule   ScheduleSpec `json:"schedule"`
 	CanEdit    bool         `json:"can_edit"`
+}
+
+// ---- puertos públicos TCP/UDP ----
+
+// PortTarget es el workload y el puerto de contenedor al que va el tráfico.
+type PortTarget struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Port int64  `json:"port"`
+}
+
+// PortSpec es un puerto editable (elemento de PUT .../ports).
+type PortSpec struct {
+	Name       string     `json:"name"`
+	Protocol   string     `json:"protocol"`
+	Port       int64      `json:"port"`
+	Target     PortTarget `json:"target"`
+	AllowCIDRs []string   `json:"allow_cidrs"`
+}
+
+// PortInfo es un puerto con su estado observado.
+type PortInfo struct {
+	PortSpec
+	State     string   `json:"state"`
+	LBReady   bool     `json:"lb_ready"`
+	Addresses []string `json:"addresses"`
+	Message   string   `json:"message"`
+	Service   string   `json:"service"`
+}
+
+// PortsView es la respuesta de GET/PUT/DELETE .../ports (solo lo que usa el provider).
+type PortsView struct {
+	Enabled bool       `json:"enabled"`
+	Version string     `json:"version"`
+	Ports   []PortInfo `json:"ports"`
+}
+
+// SetPortsReq reemplaza la lista COMPLETA de puertos; Version es la de la última lectura ("" si no había puertos).
+type SetPortsReq struct {
+	Version string     `json:"version"`
+	Ports   []PortSpec `json:"ports"`
 }

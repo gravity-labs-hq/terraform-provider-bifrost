@@ -149,9 +149,10 @@ Reglas: `apps:create` exige prefijo; `identities:manage` es opt-in con límite; 
 | `identities:manage` | `GET/POST/DELETE …/accounts`, `…/accounts/{a}/keys`, `GET/POST/DELETE …/bindings` |
 | `queues:read|manage` | `GET /queues` (filtrada por prefijo) · `POST/PUT/DELETE /queues` (nombre con prefijo) |
 | `runners:read|manage` | `GET /runners` (solo sus pools) · `POST/PUT/DELETE /runners/pools` (nombre con prefijo; `app` permitida) |
+| `ports:manage` | `GET/PUT /apps/{a}/envs/{e}/ports` · `DELETE /apps/{a}/envs/{e}/ports/{id}` (solo Apps permitidas; opt-in `allow_ports`) |
 | `replication:read|propose` | `GET /replication/links/{n}` · `POST /replication/links` (nombre con prefijo; `app` permitida) |
 
-Recursos del provider **operables** con una cuenta de plataforma: `app`, `environment`, `service`, `service_account`(+`_key`), `member`, `binding`, `quota`, `network`, `host_rules`, `access`, `scaling`, `schedule` (con el scope `schedule:manage`), `queue`, `runner_pool`, `replication_link`
+Recursos del provider **operables** con una cuenta de plataforma: `app`, `environment`, `service`, `service_account`(+`_key`), `member`, `binding`, `quota`, `network`, `host_rules`, `access`, `scaling`, `schedule` (con el scope `schedule:manage`), `ports` (con el scope `ports:manage`), `queue`, `runner_pool`, `replication_link`
 y los data sources `app`, `apps`, `environment`, `service`. **Exigen persona administradora:** `admin`, `platform_account`, `person` (data source), `on_destroy = "purge"`, `restore_archived`, opciones de herramientas `admin_only`.
 
 Brecha #5 (antes: "las máquinas no administran la plataforma") queda **resuelta por diseño** con esta cuenta: sigue sin existir un administrador-máquina.
