@@ -208,7 +208,7 @@ func (p *Provider) Resources(context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewAppResource, NewEnvironmentResource, NewServiceResource, NewServiceAccountResource, NewServiceAccountKeyResource,
 		NewMemberResource, NewBindingResource, NewPlatformAccountResource, NewQuotaResource, NewNetworkResource, NewHostRulesResource, NewAccessResource,
-		NewScalingResource, NewScheduleResource, NewPortsResource, NewQueueResource, NewReplicationLinkResource, NewRunnerPoolResource, NewAdminResource,
+		NewScalingResource, NewScheduleResource, NewPortsResource, NewWorkloadEgressResource, NewQueueResource, NewReplicationLinkResource, NewRunnerPoolResource, NewAdminResource,
 	}
 }
 

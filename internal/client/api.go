@@ -173,6 +173,23 @@ func (c *Client) SetPorts(ctx context.Context, app, env string, r SetPortsReq) (
 	return v, err
 }
 
+// ---- salidas a internet por workload ----
+
+func egressPath(app, env string) string { return envPath(app, env) + "/egress" }
+
+func (c *Client) GetEgress(ctx context.Context, app, env string) (EgressView, error) {
+	var v EgressView
+	err := c.Call(ctx, http.MethodGet, egressPath(app, env), nil, nil, &v)
+	return v, err
+}
+
+// SetEgress REEMPLAZA la lista completa de reglas de salida del entorno. 409 si la versión cambió.
+func (c *Client) SetEgress(ctx context.Context, app, env string, r SetEgressReq) (EgressView, error) {
+	var v EgressView
+	err := c.Call(ctx, http.MethodPut, egressPath(app, env), nil, r, &v)
+	return v, err
+}
+
 // ---- acceso entre Apps ----
 
 func (c *Client) ListAccess(ctx context.Context, app, env string) (Access, error) {

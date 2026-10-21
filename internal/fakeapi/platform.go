@@ -139,7 +139,7 @@ func envScope(method string, seg []string, pick func(r, w string) string) string
 			}
 		case "schedule":
 			return "schedule:manage" // lectura y escritura: nadie más la abre (default-deny)
-		case "ports":
+		case "egress", "ports":
 			return "ports:manage" // lectura y escritura: ningún otro scope la abre (default-deny)
 		case "access":
 			return pick("apps:read", "network:manage")

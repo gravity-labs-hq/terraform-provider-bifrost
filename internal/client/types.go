@@ -575,3 +575,38 @@ type SetPortsReq struct {
 	Version string     `json:"version"`
 	Ports   []PortSpec `json:"ports"`
 }
+
+// EgressTarget es el workload cuyos pods reciben la regla de salida.
+type EgressTarget struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// EgressSpec es una regla de salida editable (elemento de PUT .../egress).
+type EgressSpec struct {
+	Name     string       `json:"name"`
+	Protocol string       `json:"protocol"`
+	Port     int64        `json:"port"`
+	Target   EgressTarget `json:"target"`
+}
+
+// EgressInfo es una regla con su estado observado.
+type EgressInfo struct {
+	EgressSpec
+	State   string `json:"state"`
+	Message string `json:"message"`
+	Policy  string `json:"policy"`
+}
+
+// EgressView es la respuesta de GET/PUT .../egress (solo lo que usa el provider).
+type EgressView struct {
+	Enabled bool         `json:"enabled"`
+	Version string       `json:"version"`
+	Rules   []EgressInfo `json:"rules"`
+}
+
+// SetEgressReq reemplaza la lista COMPLETA; Version es la de la última lectura ("" si no había reglas).
+type SetEgressReq struct {
+	Version string       `json:"version"`
+	Rules   []EgressSpec `json:"rules"`
+}
