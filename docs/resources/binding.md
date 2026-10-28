@@ -32,7 +32,7 @@ resource "bifrost_binding" "gitlab" {
 
 - `app` (String)
 - `project_path` (String) `grupo/repo` o `grupo/*` (todo un grupo).
-- `role` (String)
+- `role` (String) `deploy`, `readonly` o `manager`. Un vínculo `manager` exige `ref_protected = true`, `branches` con nombres exactos (sin `*`), `claims` con `environment`, un `project_path` exacto y `environments` vacío.
 
 ### Optional
 

@@ -476,8 +476,11 @@ func (s *Server) accounts(a *app, m string, seg []string, body []byte) (int, any
 			if e != nil {
 				return 0, nil, e
 			}
-			if req.Role != "deploy" && req.Role != "readonly" {
-				return 0, nil, e400("El rol debe ser «deploy» o «readonly».")
+			if req.Role != "deploy" && req.Role != "readonly" && req.Role != "manager" {
+				return 0, nil, e400("El rol debe ser «deploy», «readonly» o «manager».")
+			}
+			if req.Role == "manager" && len(req.Envs) > 0 {
+				return 0, nil, e400("El rol manager administra la App entera: no admite entornos concretos (déjalos vacíos).")
 			}
 			if s.appStatus(a) == "archived" {
 				return 0, nil, e409("La App está archivada.")
@@ -609,8 +612,11 @@ func (s *Server) bindings(a *app, m string, seg []string, body []byte) (int, any
 			if p == "" || !strings.Contains(p, "/") || strings.ContainsAny(p, " ?#") || strings.Contains(p, "..") {
 				return 0, nil, e400("El project_path no es válido (ej. grupo/repo).")
 			}
-			if req.Role != "deploy" && req.Role != "readonly" {
-				return 0, nil, e400("El rol debe ser «deploy» o «readonly».")
+			if req.Role != "deploy" && req.Role != "readonly" && req.Role != "manager" {
+				return 0, nil, e400("El rol debe ser «deploy», «readonly» o «manager».")
+			}
+			if e := managerBindingFake(req.Role, req.ProjectPath, req.RefProtected, req.Claims, req.Branches, req.Envs); e != nil {
+				return 0, nil, e
 			}
 			if len(req.Claims) > 8 {
 				return 0, nil, e400("Demasiadas condiciones extra (máximo 8).")
@@ -665,8 +671,11 @@ func (s *Server) bindings(a *app, m string, seg []string, body []byte) (int, any
 		if p == "" || !strings.Contains(p, "/") || strings.ContainsAny(p, " ?#") || strings.Contains(p, "..") {
 			return 0, nil, e400("El project_path no es válido (ej. grupo/repo).")
 		}
-		if req.Role != "deploy" && req.Role != "readonly" {
-			return 0, nil, e400("El rol debe ser «deploy» o «readonly».")
+		if req.Role != "deploy" && req.Role != "readonly" && req.Role != "manager" {
+			return 0, nil, e400("El rol debe ser «deploy», «readonly» o «manager».")
+		}
+		if e := managerBindingFake(req.Role, req.ProjectPath, req.RefProtected, req.Claims, req.Branches, req.Envs); e != nil {
+			return 0, nil, e
 		}
 		if len(req.Claims) > 8 {
 			return 0, nil, e400("Demasiadas condiciones extra (máximo 8).")
@@ -729,4 +738,26 @@ func validBranches(in []string) ([]string, *apiErr) {
 		return nil, e400("Demasiadas ramas (máximo 20).")
 	}
 	return out, nil
+}
+
+// managerBindingFake repite las condiciones obligatorias de un vínculo manager del servidor real (apps.managerBindingRules).
+func managerBindingFake(role, project string, refProtected bool, claims map[string]string, branches, envs []string) *apiErr {
+	if role != "manager" {
+		return nil
+	}
+	if !refProtected || strings.TrimSpace(claims["environment"]) == "" || strings.Contains(project, "*") {
+		return e400("Un vínculo manager exige ref_protected, la condición environment y un proyecto exacto (sin comodines).")
+	}
+	if len(branches) == 0 {
+		return e400("Un vínculo manager exige al menos una rama explícita (branches).")
+	}
+	for _, b := range branches {
+		if strings.Contains(b, "*") {
+			return e400("Las ramas de un vínculo manager son nombres exactos, sin «*».")
+		}
+	}
+	if len(envs) > 0 {
+		return e400("El rol manager administra la App entera: no admite entornos concretos (déjalos vacíos).")
+	}
+	return nil
 }

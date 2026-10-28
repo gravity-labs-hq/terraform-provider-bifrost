@@ -34,7 +34,7 @@ output "clave" {
 
 - `app` (String)
 - `name` (String) Nombre corto (slug, 2 a 30). El id completo es `nombre@app-<app>`.
-- `role` (String) `deploy` o `readonly`.
+- `role` (String) `deploy`, `readonly` o `manager` (control total de ESTA App: red, cuota, cuentas, vínculos, miembros…, y de nada más; sin `environments`). Solo lo da un administrador, un manager de la App o una cuenta de plataforma con todos los permisos.
 
 ### Optional
 

@@ -40,7 +40,7 @@ func keyJSON(k client.ServiceAccountKey) string {
 }
 
 func roleValidators() []validator.String {
-	return []validator.String{stringvalidator.OneOf("deploy", "readonly")}
+	return []validator.String{stringvalidator.OneOf("deploy", "readonly", "manager")}
 }
 
 var emptySet = setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{}))
@@ -86,7 +86,7 @@ func (r *serviceAccountResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"id":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"app":  schema.StringAttribute{Required: true, Validators: appNameValidators(), PlanModifiers: rr()},
 			"name": schema.StringAttribute{Required: true, Description: "Nombre corto (slug, 2 a 30). El id completo es `nombre@app-<app>`.", Validators: slugValidators("de la cuenta", 2, 30), PlanModifiers: rr()},
-			"role": schema.StringAttribute{Required: true, Description: "`deploy` o `readonly`.", Validators: roleValidators(), PlanModifiers: rr()},
+			"role": schema.StringAttribute{Required: true, Description: "`deploy`, `readonly` o `manager` (control total de ESTA App: red, cuota, cuentas, vínculos, miembros…, y de nada más; sin `environments`). Solo lo da un administrador, un manager de la App o una cuenta de plataforma con todos los permisos.", Validators: roleValidators(), PlanModifiers: rr()},
 			"environments": schema.SetAttribute{Optional: true, Computed: true, ElementType: types.StringType, Default: emptySet,
 				Description:   "Entornos a los que llega la cuenta; vacío = todos (presentes y futuros).",
 				PlanModifiers: []planmodifier.Set{setplanmodifier.RequiresReplace()}},
@@ -534,7 +534,7 @@ func (r *bindingResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators: []validator.String{stringvalidator.LengthBetween(3, 200), stringvalidator.RegexMatches(projectPathRe, "debe ser grupo/repo o grupo/* (sin espacios, sin `..`, comodín solo al final)")}},
 			"ref_protected": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Exige que el job corra en una rama/tag protegida."},
 			"claims":        schema.MapAttribute{Optional: true, Computed: true, ElementType: types.StringType, Default: emptyMap, Description: "Condiciones extra sobre claims del ID token (máx 8; valor no vacío), p. ej. `environment = \"production\"`."},
-			"role":          schema.StringAttribute{Required: true, Validators: roleValidators()},
+			"role":          schema.StringAttribute{Required: true, Description: "`deploy`, `readonly` o `manager`. Un vínculo `manager` exige `ref_protected = true`, `branches` con nombres exactos (sin `*`), `claims` con `environment`, un `project_path` exacto y `environments` vacío.", Validators: roleValidators()},
 			"environments":  schema.SetAttribute{Optional: true, Computed: true, ElementType: types.StringType, Default: emptySet, Description: "Entornos a los que llega; vacío = todos (también los futuros)."},
 			"branches": schema.SetAttribute{Optional: true, Computed: true, ElementType: types.StringType, Default: emptySet,
 				Validators:  []validator.Set{setvalidator.SizeAtMost(20), setvalidator.ValueStringsAre(branchValidator{})},

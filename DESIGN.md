@@ -19,6 +19,7 @@ Comunes: `api` / `BIFROST_API` (`https`; `http` solo para localhost/127.0.0.1), 
 **No existe `insecure`**: la verificación TLS no se puede desactivar. `id_token_env` guarda solo el *nombre* de la variable y se lee en cada canje.
 
 **Restricción del servidor:** una identidad de máquina *nunca* es administradora; una cuenta de servicio **de una App** o un vínculo de CI de una App solo llegan a su App (`machineAllowed`).
+El rol **`manager`** (`bifrost_service_account.role` y `bifrost_binding.role`) da control total sobre ESA App (red, cuota, entornos, accesos, reglas por host, salidas, cuentas, vínculos, miembros) y nada más: no crea ni elimina Apps, no abre puertos públicos y no toca otras Apps. Un vínculo `manager` exige `ref_protected`, ramas exactas, `claims.environment` y proyecto exacto; una cuenta o vínculo `manager` no admite `environments`. Solo lo crean un administrador, un manager de la App o una cuenta de plataforma con todos los scopes que el manager reúne (nadie da más capacidad de la que tiene). Ver `docs/identidades-y-permisos.md` del servidor.
 Para administrar la plataforma desde un CI existe la **cuenta de servicio de plataforma** con scopes acotados (§6): no es administradora, y por eso `bifrost_admin` y `bifrost_platform_account` siguen exigiendo persona administradora. Los 403 lo explican.
 
 **Canje de token: se reimplementa** (~150 líneas en `internal/client/auth.go`) en vez de importar `internal/cli/auth` del servidor. Importarlo es posible por la regla de

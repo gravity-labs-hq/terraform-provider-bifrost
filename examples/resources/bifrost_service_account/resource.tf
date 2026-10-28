@@ -10,3 +10,10 @@ output "clave" {
   value     = bifrost_service_account.deploy.key_json
   sensitive = true
 }
+
+# Control total de ESTA App (red, cuota, cuentas, vínculos, miembros…) y de nada más. Sin `environments`.
+resource "bifrost_service_account" "manager" {
+  app  = bifrost_app.tienda.name
+  name = "manager"
+  role = "manager"
+}
